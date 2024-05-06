@@ -130,7 +130,20 @@ async function check(req, res) {
         //     `https://${walletInfo.network === '-3' ? 'testnet.' : ''
         //     }tonapi.io/v2/wallet/getWalletPublicKey?account=${encodeURI(walletInfo.address)}`
         // )
-        const pubkey = hexPublicKey(walletInfo.address);
+
+        const { data } = await axios(
+            `https://${
+              walletInfo.network === '-3' ? 'testnet.' : ''
+            }tonapi.io/v2/tonconnect/stateinit`,
+            {
+              method: 'POST',
+              data: {
+                state_init: walletInfo.proof.state_init,
+              },
+            }
+          )
+          console.log(data);
+        const pubkey = Buffer.from(data.public_key, 'hex')
 
         let toSend = {
             address: walletInfo.address,
