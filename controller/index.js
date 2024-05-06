@@ -7,10 +7,28 @@ const nacl = require('tweetnacl');
 // import nacl from 'tweetnacl'
 const axios = require('axios');
 
+const hexPublicKey = (hexStr) => {
+    if (hexStr.startsWith("0:")) {
+        hexStr = hexStr.slice(2);
+    }
+
+    // Parse hexadecimal string
+    const buffer = Buffer.from(hexStr, 'hex');
+
+    // Extract first 32 bytes (Ed25519 public key)
+    const publicKey = buffer.subarray(0, 32);
+
+    // Return public key as hexadecimal string
+    return publicKey;
+}
+
 
 function SignatureVerify(pubkey, message, signature) {
-    return nacl.sign.detached.verify(message, signature, pubkey)
-
+    try {
+        return nacl.sign.detached.verify(message, signature, pubkey)
+    } catch (error) {
+        console.error(error);
+    }
     // return ed25519.Verify(pubkey, message, signature)
 }
 
@@ -78,19 +96,19 @@ function ConvertTonProofMessage(
     walletInfo,
     tp
 ) {
-    const address = Address.parse(walletInfo.account.address)
+    const address = Address.parse(walletInfo.address)
 
     const res = {
         Workchain: address.workChain,
         Address: address.hash,
         Domain: {
-            LengthBytes: tp.proof.domain.lengthBytes,
-            Value: tp.proof.domain.value,
+            LengthBytes: tp.domain.lengthBytes,
+            Value: tp.domain.value,
         },
-        Signature: Buffer.from(tp.proof.signature, 'base64'),
-        Payload: tp.proof.payload,
-        StateInit: walletInfo.account.walletStateInit,
-        Timstamp: tp.proof.timestamp,
+        Signature: Buffer.from(tp.signature, 'base64'),
+        Payload: tp.payload,
+        StateInit: tp.state_init,
+        Timstamp: tp.timestamp,
     }
     return res
 }
@@ -99,35 +117,40 @@ async function check(req, res) {
     try {
 
 
-        const walletInfo = req.body.walletInfo
-        if (!walletInfo?.connectItems?.tonProof) {
+        const walletInfo = req.body
+        if (!walletInfo?.proof) {
             return res.status(400).send({ ok: false })
         }
-        const proof = walletInfo.connectItems.tonProof
+        const proof = walletInfo.proof
         if (!proof) {
             return res.status(400).send({ ok: false })
         }
 
-        const { data } = await axios(
-            `https://${walletInfo.account.chain === '-3' ? 'testnet.' : ''
-            }tonapi.io/v1/wallet/getWalletPublicKey?account=${encodeURI(walletInfo.account.address)}`
-        )
-        const pubkey = Buffer.from(data.publicKey, 'hex')
+        // const { data } = await axios(
+        //     `https://${walletInfo.network === '-3' ? 'testnet.' : ''
+        //     }tonapi.io/v2/wallet/getWalletPublicKey?account=${encodeURI(walletInfo.address)}`
+        // )
+        const pubkey = hexPublicKey(walletInfo.address);
 
-
-        const parsedMessage = ConvertTonProofMessage(walletInfo, proof)
+        let toSend = {
+            address: walletInfo.address,
+            ...walletInfo.proof
+        }
+        const parsedMessage = ConvertTonProofMessage(toSend, proof)
         const checkMessage = await CreateMessage(parsedMessage)
 
         const verifyRes = SignatureVerify(pubkey, checkMessage, parsedMessage.Signature)
+        console.log(verifyRes);
         if (!verifyRes) {
             return res.status(400).send({ ok: false })
         }
+        return res.status(200).send({ok : true});
     } catch (error) {
         console.error(error);
         return res.status(500).send({
-            status : false,
-            message : "Error in checking the proof",
-            rawError : error
+            status: false,
+            message: "Error in checking the proof",
+            rawError: error
         })
     }
 
